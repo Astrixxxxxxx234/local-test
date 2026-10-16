@@ -5,7 +5,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = "$scriptDir\exclusion.cpp"
 $out = "$scriptDir\exclusion.exe"
 
-# Find MSVC compiler
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (Test-Path $vswhere) {
     $vsPath = & $vswhere -latest -property installationPath
@@ -30,6 +29,6 @@ if (Test-Path $out) {
     Write-Host "[*] Running..."
     & $out
 } else {
-    Write-Host "[!] Compile failed — no output file found"
+    Write-Host "[!] Compile failed - no output file found"
     Write-Host "[!] Make sure Visual Studio or MinGW is installed"
 }
