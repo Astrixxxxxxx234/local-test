@@ -107,14 +107,26 @@ int wmain(int argc, wchar_t* argv[]) {
     std::wcout << L"[*] Spawning: " << targetExe << std::endl;
     std::wcout << L"[*] DLL: " << dllPath << std::endl;
 
+    // Get current process token to pass full admin privileges to child
+    HANDLE hToken = NULL;
+    OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &hToken);
+
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi = {};
 
-    if (!CreateProcessW(targetExe, NULL, NULL, NULL, FALSE,
-                        CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
-        std::wcerr << L"[!] CreateProcess failed. Error: " << GetLastError() << std::endl;
-        return 1;
+    // Spawn with our token so child inherits full admin/SYSTEM privileges
+    if (!CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, targetExe, NULL,
+                                 CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
+        std::wcerr << L"[!] CreateProcessWithTokenW failed. Error: " << GetLastError() << std::endl;
+        // Fallback to normal CreateProcess
+        if (!CreateProcessW(targetExe, NULL, NULL, NULL, FALSE,
+                            CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
+            std::wcerr << L"[!] CreateProcess fallback also failed. Error: " << GetLastError() << std::endl;
+            CloseHandle(hToken);
+            return 1;
+        }
     }
+    CloseHandle(hToken);
     std::wcout << L"[+] Spawned suspended PID: " << pi.dwProcessId << std::endl;
 
     bool ok = InjectDLL(pi.hProcess, pi.dwProcessId, dllPath);
